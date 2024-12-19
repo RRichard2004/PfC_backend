@@ -3,18 +3,17 @@ const bodyParser = require('body-parser');
 const { Pool } = require('pg');
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;  // Use Render's dynamic port or fallback to 3000
 
 // Middleware
 app.use(bodyParser.json());
 
-// PostgreSQL configuration
+// PostgreSQL configuration (using Render's DATABASE_URL)
 const pool = new Pool({
-  user: 'your_user',
-  host: 'localhost',
-  database: 'your_database',
-  password: 'your_password',
-  port: 5432,
+  connectionString: process.env.DATABASE_URL,  // Render provides DATABASE_URL environment variable
+  ssl: {
+    rejectUnauthorized: false,  // Necessary for connecting to a remote PostgreSQL database with SSL
+  },
 });
 
 // Routes
@@ -73,5 +72,5 @@ app.post('/logout', async (req, res) => {
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(`Server running on port ${port}`);
 });
