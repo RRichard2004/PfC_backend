@@ -1,84 +1,80 @@
 const express = require('express');
+const mysql = require('mysql2');
 const bodyParser = require('body-parser');
-const { Pool } = require('pg');
-const cors = require('cors');  // Import the CORS middleware
+const cors = require('cors');
 
 const app = express();
-const port = process.env.PORT || 3000;  // Use Render's dynamic port or fallback to 3000
+const port = 3005; // You can change this port if needed
 
-// Middleware
-app.use(cors());  // Enable CORS for all routes
+// Middleware setup
 app.use(bodyParser.json());
+app.use(cors()); // Allow all origins for now, can be adjusted for security later
 
-// PostgreSQL configuration (using Render's DATABASE_URL)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,  // Render provides DATABASE_URL environment variable
-  ssl: {
-    rejectUnauthorized: false,  // Necessary for connecting to a remote PostgreSQL database with SSL
-  },
+// Create a pool of connections to MySQL
+const pool = mysql.createPool({
+  host: 'localhost',
+  user: 'root',     // Replace with your MySQL email
+  password: '', // Replace with your MySQL password
+  database: 'pfc_user', // Replace with your MySQL database name
 });
 
-// Routes
+// Test MySQL connection
+pool.getConnection((err, connection) => {
+  if (err) {
+    console.error('Error connecting to the MySQL database:', err.stack);
+    return;
+  }
+  console.log('Connected to MySQL as id ' + connection.threadId);
+  connection.release(); // Release the connection back to the pool
+});
 
-
+// Basic GET route for testing
 app.get('/', (req, res) => {
-  return(res.status(200).json({ message: 'Hello, World!' }));
+  res.send('Hello, this is the backend server!');
 });
 
-// Register endpoint
-app.post('/register', async (req, res) => {
+// Example POST route to handle user registration (for example)
+app.post('/register', (req, res) => {
   const { email, password } = req.body;
-
-  try {
-    // Check if the email already exists
-    const userCheck = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-
-    if (userCheck.rows.length > 0) {
-      return res.status(400).json({ error: 'Email already registered.' });
+  
+  // Simple query to insert data into a users table (make sure the table exists)
+  pool.query(
+    'INSERT INTO users (email, password) VALUES (?, ?)',
+    [email, password],
+    (err, results) => {
+      if (err) {
+        console.error('Error inserting data:', err.stack);
+        return res.status(500).json({ error: 'Database error' });
+      }
+      res.status(200).json({ message: 'User registered successfully', userId: results.insertId });
     }
-
-    // Insert the new user
-    await pool.query('INSERT INTO users (email, password) VALUES ($1, $2)', [email, password]);
-    return res.status(201).json({ message: 'Registration successful.' });
-  } catch (error) {
-    console.error('Error during registration:', error);
-    return res.status(500).json({ error: 'Internal server error.' });
-  }
+  );
 });
 
-// Login endpoint
-app.post('/login', async (req, res) => {
+// Example POST route to handle login
+app.post('/login', (req, res) => {
   const { email, password } = req.body;
-
-  try {
-    // Check if the email and password match
-    const user = await pool.query('SELECT * FROM users WHERE email = $1 AND password = $2', [email, password]);
-
-    if (user.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid email or password.' });
+  
+  // Query to check if user exists with the provided email and password
+  pool.query(
+    'SELECT * FROM users WHERE email = ? AND password = ?',
+    [email, password],
+    (err, results) => {
+      if (err) {
+        console.error('Error fetching data:', err.stack);
+        return res.status(500).json({ error: 'Database error' });
+      }
+      
+      if (results.length > 0) {
+        res.status(200).json({ message: 'Login successful', user: results[0] });
+      } else {
+        res.status(401).json({ message: 'Invalid credentials' });
+      }
     }
-
-    return res.status(200).json({ message: 'Login successful.' });
-  } catch (error) {
-    console.error('Error during login:', error);
-    return res.status(500).json({ error: 'Internal server error.' });
-  }
+  );
 });
-
-// Logout endpoint
-app.post('/logout', async (req, res) => {
-  const { email } = req.body;
-
-  try {
-    return res.status(200).json({ message: 'Logout successful.' });
-  } catch (error) {
-    console.error('Error during logout:', error);
-    return res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`Server running on http://localhost:${port}`);
 });
