@@ -1,11 +1,13 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const { Pool } = require('pg');
+const cors = require('cors');  // Import the CORS middleware
 
 const app = express();
 const port = process.env.PORT || 3000;  // Use Render's dynamic port or fallback to 3000
 
 // Middleware
+app.use(cors());  // Enable CORS for all routes
 app.use(bodyParser.json());
 
 // PostgreSQL configuration (using Render's DATABASE_URL)
@@ -17,6 +19,11 @@ const pool = new Pool({
 });
 
 // Routes
+
+
+app.get('/', (req, res) => {
+  return(res.status(200).json({ message: 'Hello, World!' }));
+});
 
 // Register endpoint
 app.post('/register', async (req, res) => {
@@ -69,6 +76,7 @@ app.post('/logout', async (req, res) => {
     return res.status(500).json({ error: 'Internal server error.' });
   }
 });
+
 
 // Start the server
 app.listen(port, () => {
