@@ -2,79 +2,145 @@ const express = require('express');
 const mysql = require('mysql2');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const bcrypt = require('bcrypt'); 
+const crypto = require('crypto');
 
 const app = express();
-const port = 3005; // You can change this port if needed
+const port = 3005; 
 
-// Middleware setup
 app.use(bodyParser.json());
-app.use(cors()); // Allow all origins for now, can be adjusted for security later
+app.use(cors());
 
-// Create a pool of connections to MySQL
 const pool = mysql.createPool({
   host: 'localhost',
-  user: 'root',     // Replace with your MySQL email
-  password: '', // Replace with your MySQL password
-  database: 'pfc_user', // Replace with your MySQL database name
+  user: 'root',
+  password: '',
+  database: 'pfc_user',
 });
 
-// Test MySQL connection
+
 pool.getConnection((err, connection) => {
   if (err) {
     console.error('Error connecting to the MySQL database:', err.stack);
     return;
   }
   console.log('Connected to MySQL as id ' + connection.threadId);
-  connection.release(); // Release the connection back to the pool
+  connection.release();
 });
+
+function generateSessionKey() {
+  return crypto.randomBytes(32).toString('hex'); 
+}
 
 // Basic GET route for testing
 app.get('/', (req, res) => {
   res.send('Hello, this is the backend server!');
 });
 
-// Example POST route to handle user registration (for example)
-app.post('/register', (req, res) => {
-  const { email, password } = req.body;
-  
-  // Simple query to insert data into a users table (make sure the table exists)
-  pool.query(
-    'INSERT INTO users (email, password) VALUES (?, ?)',
-    [email, password],
-    (err, results) => {
-      if (err) {
-        console.error('Error inserting data:', err.stack);
-        return res.status(500).json({ error: 'Database error' });
-      }
-      res.status(200).json({ message: 'User registered successfully', userId: results.insertId });
-    }
-  );
+app.post('/register', async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+      // Check if the username already exists
+      pool.query(
+          'SELECT * FROM users WHERE username = ?',
+          [username],
+          async (err, results) => {
+              if (err) {
+                  console.error('Error querying database:', err.stack);
+                  return res.status(500).json({ error: 'Database error' });
+              }
+
+              if (results.length > 0) {
+                  return res.status(400).json({ error: 'Username already exists' });
+              }
+
+              // If username does not exist, proceed with registration
+              const saltRounds = 10;
+              const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+              pool.query(
+                  'INSERT INTO users (username, password) VALUES (?, ?)',
+                  [username, hashedPassword],
+                  (err, results) => {
+                      if (err) {
+                          console.error('Error inserting data:', err.stack);
+                          return res.status(500).json({ error: 'Database error' });
+                      }
+                      res.status(200).json({ message: 'User registered successfully', userId: results.insertId });
+                  }
+              );
+          }
+      );
+  } catch (error) {
+      console.error('Error during registration:', error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-// Example POST route to handle login
-app.post('/login', (req, res) => {
-  const { email, password } = req.body;
+
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
   
-  // Query to check if user exists with the provided email and password
-  pool.query(
-    'SELECT * FROM users WHERE email = ? AND password = ?',
-    [email, password],
-    (err, results) => {
-      if (err) {
-        console.error('Error fetching data:', err.stack);
-        return res.status(500).json({ error: 'Database error' });
-      }
+  
+  pool.query('SELECT * FROM users WHERE username = ?', [username], async (err, results) => {
+    if (err) {
+      console.error('Error fetching data:', err.stack);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (results.length > 0) {
+      const user = results[0];
+
       
-      if (results.length > 0) {
-        res.status(200).json({ message: 'Login successful', user: results[0] });
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (isMatch) {
+        
+        const sessionKey = generateSessionKey();
+
+        pool.query(
+          'UPDATE users SET session_key = ? WHERE id = ?',
+          [sessionKey, user.id],
+          (updateErr) => {
+            if (updateErr) {
+              console.error('Error updating session key:', updateErr.stack);
+              return res.status(500).json({ error: 'Database error' });
+            }
+
+            res.status(200).json({ message: 'Login successful', session_key: sessionKey, username: user.username});
+          }
+        );
       } else {
         res.status(401).json({ message: 'Invalid credentials' });
       }
+    } else {
+      res.status(401).json({ message: 'Invalid credentials' });
+    }
+  });
+});
+
+app.post('/logout', async (req, res) => {
+  const { username } = req.body;
+
+  pool.query(
+    'UPDATE users SET session_key = NULL WHERE username = ?',
+    [username],
+    (err, results) => {
+      if (err) {
+        console.error('Error during logout:', err.stack);
+        return res.status(500).json({ error: 'Database error' });
+      }
+
+      if (results.affectedRows > 0) {
+        res.status(200).json({ message: 'Logout successful' });
+      } else {
+        res.status(404).json({ message: 'User not found' });
+      }
     }
   );
 });
 
-// Start the server
+
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
